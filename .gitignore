@@ -9,6 +9,7 @@ __pycache__/
 
 # excluded directories
 /spectrogram_data*
+/RandomForest/output*
 
 # C extensions
 *.so
