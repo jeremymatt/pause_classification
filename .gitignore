@@ -10,8 +10,7 @@ __pycache__/
 *.xlsx
 
 # excluded directories
-/spectrogram_data*
-/RandomForest/output*
+/data*
 
 # C extensions
 *.so
