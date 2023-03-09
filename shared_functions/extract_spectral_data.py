@@ -13,16 +13,13 @@ import pandas as pd
 
 
 def get_clip_lengths(source_dir, files):
+    #Init an empty dataframe to store the clip lengths
     clip_lengths = pd.DataFrame()
     
-    file = files[0]
+    #For each source audio file, find and store the length in the dataframe
     for ctr,file in enumerate(files):
         patient_id = int(file.split('.')[0])
         file_path = os.path.join(source_dir,file)
-        
-        # sub_sample, f_sample = librosa.load(file)
-        
-        # length = int(sub_sample.shape[0]/f_sample)
         
         length = int(np.floor(librosa.get_duration(filename = file_path)))
         
