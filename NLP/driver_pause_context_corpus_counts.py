@@ -9,7 +9,9 @@ import os
 import sys
 cd  = os.getcwd()
 shared_functions = os.path.join(os.path.split(cd)[0],'shared_functions')
-sys.path.insert(0,shared_functions)
+NLP_functions = os.path.join(shared_functions,'NLP')
+sys.path.insert(0,shared_functions)  
+sys.path.insert(0,NLP_functions)
 
 import Global_Settings as settings
 import numpy as np
@@ -21,6 +23,10 @@ import seaborn as sns
 import scipy.stats as stats
 from matplotlib import rcParams
 import setupPCCRIconversations as stup
+
+
+sys.path.remove(shared_functions)
+sys.path.remove(NLP_functions)
 
 dataset = settings.dataset_name
 #Choose the pause classifications for which to calculate the corpus percentages

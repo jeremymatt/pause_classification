@@ -1,12 +1,9 @@
 
-
 import os
 import sys
 cd  = os.getcwd()
-shared_functions = os.path.join(os.path.split(cd)[0],'shared_functions')
-NLP_functions = os.path.join(shared_functions,'NLP')
-sys.path.insert(0,shared_functions)  
-sys.path.insert(0,NLP_functions)
+shared_functions = os.path.join(os.path.split(cd)[0],'shared_functions','NLP')
+sys.path.insert(0,shared_functions)
 
 import Global_Settings as settings
 import setupPCCRIconversations as stup

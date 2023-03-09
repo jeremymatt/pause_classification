@@ -10,10 +10,8 @@ Created on Wed Aug  3 12:52:15 2022
 import os
 import sys
 cd  = os.getcwd()
-shared_functions = os.path.join(os.path.split(cd)[0],'shared_functions')
-NLP_functions = os.path.join(shared_functions,'NLP')
-sys.path.insert(0,shared_functions)  
-sys.path.insert(0,NLP_functions)
+shared_functions = os.path.join(os.path.split(cd)[0],'shared_functions','NLP')
+sys.path.insert(0,shared_functions)
 
 import Global_Settings as settings
 
@@ -31,7 +29,6 @@ import sys
 
 
 sys.path.remove(shared_functions)
-sys.path.remove(NLP_functions)
 
 
 runtime = str(dt.datetime.now()).split('.')[0].replace(' ','_').replace(':','-')

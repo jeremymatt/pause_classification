@@ -22,6 +22,10 @@ from matplotlib import rcParams
 rcParams.update({'font.size': 15})
 
 import sys
+cd = os.getcwd()
+root = os.path.split(cd)[0]
+shared_functions = os.path.join(root,'shared_functions','NLP')
+sys.path.insert(0,shared_functions)
 import ml_metrics as MLM
 import Global_Settings as settings
 
