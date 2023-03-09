@@ -6,7 +6,9 @@ source_audio = "test_wav_files";
 
 t = fileparts(mfilename('fullpath'))
 
-dirname = fullfile(t,'..','audio_source_files',source_audio)
+root = fullfile(t,'..');
+
+dirname = fullfile(root,'audio_source_files',source_audio);
 
 
 len_file = fullfile(t,'..','spectrogram_data',source_audio,'clip_lengths.csv')
@@ -20,7 +22,7 @@ stepMFCC = 0.025;
 visualize = 1;
 before_silence_len = 10;
 after_silence_len = 5;
-finalpath_root = "output\"+source_audio;
+finalpath_root = fullfile(root,'data','random_forest_results',source_audio);
 mkdir(finalpath_root)
 
 load trainedRandomForest.mat
