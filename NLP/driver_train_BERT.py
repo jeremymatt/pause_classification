@@ -1,0 +1,380 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Aug  3 12:52:15 2022
+
+@author: jerem
+"""
+
+#%%
+
+import os
+import sys
+cd  = os.getcwd()
+shared_functions = os.path.join(os.path.split(cd)[0],'shared_functions')
+sys.path.insert(0,shared_functions)
+
+import Global_Settings as settings
+
+import csv
+import re
+import numpy as np
+import pandas as pd
+from sklearn.metrics import accuracy_score
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID";
+os.environ["CUDA_VISIBLE_DEVICES"]="0";
+import sys
+import datetime as dt
+import random
+import sys
+
+
+sys.path.remove(shared_functions)
+
+
+runtime = str(dt.datetime.now()).split('.')[0].replace(' ','_').replace(':','-')
+print('running at {}'.format(runtime))
+#use ktrain to classify
+
+#%%
+import ktrain
+from ktrain import text
+
+#%%
+MODEL_NAME = 'bert-base-uncased'
+print('Model used is '+MODEL_NAME)
+
+import time
+start_time = time.time()
+
+
+epochs = 1  #Number of epochs to train for each interval
+training_intervals = 5 #Number of times to train 
+
+run_number = 2
+
+only_use_good = False
+force_balance = False
+connectional_vs_non_connectional = False
+split_out_test_set_patients = False
+
+# number to leave out
+folds = 10
+
+#Code to split the folds into multiple batches for quicker running on DeepGreen
+split_folds = True
+if split_folds:
+    folds_per_set = 10
+    fold_set = 0
+else:
+    folds_per_set = 1000000 #Set folds per batch to very large number (so all folds are run)
+    fold_set = 0
+
+if split_folds & (folds_per_set*fold_set>folds):
+    print('exiting')
+    sys.exit()
+
+start_fold = min([folds-1,fold_set*folds_per_set])
+end_fold = min([folds,(fold_set+1)*folds_per_set])
+
+
+labels_dict = {
+    0:'Non-connectional',
+    1:'Emotional',
+    2:'Invitational'}
+
+cd = os.getcwd()
+output_dir = os.path.join(settings.BERT_results_path,'run{}'.format(run_number),'CV_output-{}_folds{}-{}'.format(runtime,start_fold,end_fold))
+print('output_dir: {}'.format(output_dir))
+
+            
+data_df = pd.read_csv(settings.BERT_labels_fn)
+for idx in data_df.index:
+    data_df.loc[idx,'pre silence'] = re.sub('\<.*?\>','',data_df.loc[idx,'pre silence'])
+    # data_df.loc[idx,'label True'] = labels_dict[data_df.loc[idx,'label True']]
+    
+    
+data_idx = list(data_df.index)
+all_words = data_df.loc[data_idx[0],"pre silence"]
+for idx in data_idx[1:]:
+    all_words = '{} {}'.format(all_words,data_df.loc[idx,"pre silence"])
+    
+chrs_to_remove = r'\\/?.\'-{}""<>[]()'
+aw = re.sub("'","",all_words)
+aw = re.sub('\W'," ",aw)
+aw = re.sub('\s+'," ",aw)
+aw = aw.split(' ')
+
+patients = set(data_df['Patient'])
+
+patient_conv = set(list(zip(data_df['Patient'],data_df['Conversation'])))
+conv_patients,conv = list(zip(*patient_conv))
+conv_patients = np.array(conv_patients)
+multiple_conversations = sorted([tpl for tpl in patient_conv if sum(conv_patients==tpl[0])>1])
+
+
+patient,conv = list(zip(*patient_conv))
+
+
+
+print("{} words from {} pauses in {} conversations with {} patients".format(len(aw),data_df.shape[0],len(patient_conv),len(patients)))    
+
+
+#%%
+
+df_keys = list(data_df.keys())
+if 'Unnamed: 0' in df_keys:
+    data_df['eventId'] = data_df['Unnamed: 0']
+    
+patients_missing_labels_df = data_df.loc[data_df['label True'] == 'unk',:]
+patients_missing_labels = list(set(patients_missing_labels_df['Patient']))
+   
+
+data_df['label True'] = data_df['label True'].astype(float).astype(int).astype(str)
+
+types = set(data_df['label True'])
+
+for typ in types:
+    print('Found {} examples of type {}'.format(sum(data_df['label True'] == typ),typ))
+
+
+
+if split_out_test_set_patients:
+    test_set_patients = [123,118,278,201,221]
+    test_set_mask = np.zeros(data_df.shape[0]).astype(bool)
+    for patient in test_set_patients:
+        temp_mask = data_df['Patient'] == patient
+        test_set_mask = test_set_mask|temp_mask
+        
+    test_data_df = data_df.loc[test_set_mask,:]
+    data_df = data_df.loc[~test_set_mask,:]
+else:
+    test_data_df = pd.DataFrame()
+
+
+train_patient_conversation_set = {(data_df.loc[ind,'Patient'],data_df.loc[ind,'Conversation']) for ind in data_df.index}
+train_patient_conversation_set = sorted(list(train_patient_conversation_set))
+train_patient,train_conversation = list(zip(*train_patient_conversation_set))
+pat_conv_df = pd.DataFrame({'patient':train_patient,'conversation':train_conversation})
+pat_conv_df.to_csv('train_patient_conversation_list.csv')
+
+pat,conv = train_patient_conversation_set[0]
+
+final_code_counts = {}
+
+total_inds = []
+
+
+    
+if connectional_vs_non_connectional:
+    print('\n\n************************ WARNING: only classifying connectional vs. non-connectional ********************\n\n')
+    data_df.loc[data_df['label True'] == '2','label True'] = '1'
+    type_list = ['1','0']
+else:
+    type_list = ['0','5','6']
+ 
+    
+
+if force_balance:
+    print('\n\n************************ WARNING: forcing balanced dataset ********************\n\n')
+    num_type = 999999999
+    for code in type_list:
+        num_type = min([num_type,sum(data_df['label True'] == code)])
+    
+    index_list = []
+    for code in type_list:
+        temp = list(data_df.loc[data_df['label True']==code,:].index)
+        temp = random.sample(temp,num_type)
+        index_list.extend(temp)
+    index_list = sorted(index_list)
+    data_df = data_df.loc[index_list,:]
+    
+        
+
+
+num_patients = len(set(data_df.Patient))
+
+patient_convo = {(data_df.loc[ind,'Patient'],data_df.loc[ind,'Conversation']) for ind in data_df.index}
+
+print('there are {} patients and {} total conversations in the training/validation dataset'.format(num_patients,len(patient_convo)))
+
+
+labels = set(data_df['label True'])
+total = 0
+for label in labels:
+    mask = data_df['label True'] == label
+    num_of_type = sum(mask)
+    total+=num_of_type
+    inds = data_df.loc[mask,:].index
+    rng = np.round(np.linspace(0,num_of_type,folds+1),0).astype(int)
+    for ctr in range(len(rng)-1):
+        data_df.loc[inds[rng[ctr]:rng[ctr+1]],'fold_num'] = ctr
+    print('Found {} entries of type {}'.format(num_of_type,label))
+    print('  Splitting into {} folds'.format(folds))
+print('Total Entries: {}\n'.format(total))
+    
+ #%%   
+source_list = ['0100.wav',
+'0101.wav',
+'0102.wav',
+'0103.wav',
+'0104.wav',
+'0105.wav',
+'0106.wav',
+'0107.wav',
+'0108.wav',
+'0109.wav',
+'0110.wav',
+'0111.wav',
+'0112.wav',
+'0113.wav',
+'0114.wav',
+'0116.wav',
+'0119.wav',
+'0120.wav',
+'0121.wav',
+'0122.wav',
+'0133.wav',
+'0137.wav',
+'0176.wav']
+
+patient_list = [int(item.split('.')[0]) for item in source_list]
+
+counts_df = {}
+for patient in patient_list:
+    temp = data_df.loc[data_df.Patient == patient,:]
+    types = set(temp['label True'])
+    for typ in types:
+        count = sum(temp['label True'] == typ)
+        if typ in counts_df.keys():
+            counts_df[typ] += count
+        else:
+            counts_df[typ] = count
+
+
+
+    
+acc_history = pd.DataFrame()
+
+if split_out_test_set_patients:
+    patient = np.array(test_data_df['Patient'])
+    conversation = np.array(test_data_df['Conversation'])
+    silence_num = np.array(test_data_df['silence_num'])
+    x_test = np.array(test_data_df['pre silence'])
+    y_test = np.array(test_data_df['label True'])
+    coder1 = np.array(test_data_df['Coder_1'])
+    coder2 = np.array(test_data_df['Coder_2'])
+    
+ctr = 0
+split = 0
+for ctr,split in enumerate(range(start_fold,end_fold)):
+    # start,stop = tpl
+    cur_output_dir = os.path.join(output_dir,'fold_{}'.format(str(split).zfill(2)))
+    print(cur_output_dir)
+    if not os.path.isdir(cur_output_dir):
+        os.makedirs(cur_output_dir)
+    
+    test_mask = data_df['fold_num'] == split
+    train_mask = data_df['fold_num'] != split
+    x_val = np.array(data_df.loc[test_mask,'pre silence'])
+    y_val = np.array(data_df.loc[test_mask,'label True'])
+    id_val = np.array(data_df.loc[test_mask,'eventId'])
+    # y_test = labels[start:stop]
+    # x_test = inputs[start:stop]
+    # id_test = ids[start:stop]
+    
+    x_train = np.array(data_df.loc[train_mask,'pre silence'])
+    y_train = np.array(data_df.loc[train_mask,'label True'])
+    # y_train = np.append(labels[:start],labels[stop:])
+    # x_train = np.append(inputs[:start],inputs[stop:])
+
+    t = text.Transformer(MODEL_NAME, maxlen=500)
+    
+    trn = t.preprocess_train(x_train, y_train)
+    #val = t.preprocess_test(x_val, y_val)
+    # tst = t.preprocess_test(x_test, y_val)
+    model = t.get_classifier()
+    learner = ktrain.get_learner(model, train_data=trn, batch_size=10) #val_data=val
+    #learner.lr_find(show_plot=True, max_epochs=3)
+    
+    test_history = []
+    train_history = []
+    
+    predictor = ktrain.get_predictor(model, t)
+    y_val_pred = predictor.predict(x_val)
+    y_val_probs = predictor.predict(x_val,return_proba = True)
+    
+    val_accuracy = accuracy_score(y_val,y_val_pred)
+    acc_history.loc[ctr,'test_epoch_0'] = val_accuracy
+    test_history.append(val_accuracy)
+    y_train_pred = predictor.predict(x_train)
+    val_accuracy = accuracy_score(y_train,y_train_pred)
+    acc_history.loc[ctr,'train_epoch_0'] = val_accuracy
+    train_history.append(val_accuracy)
+    
+    
+    # test_history.append(.5)
+    # train_history.append(.5)
+    
+    for i in range(training_intervals):
+        learning_rate = "10e-4"
+        hist = learner.fit_onecycle(0.0001, epochs)
+        #hist = learner.autofit(0.0001, checkpoint_folder='../weights/')
+        
+        
+        #Predict and convert predictions to actual classes
+        predictor = ktrain.get_predictor(model, t)
+        y_train_pred = predictor.predict(x_train)
+        # Y_pred = predictor.predict(x_test,return_proba = True)
+        train_accuracy = accuracy_score(y_train,y_train_pred)
+        acc_history.loc[ctr,'train_epoch_{}'.format(i+1)] = train_accuracy
+        print('Train Accuracy is: '+str(train_accuracy))
+        train_history.append(train_accuracy)
+        
+        y_val_pred = predictor.predict(x_val)
+        y_val_probs = predictor.predict(x_val,return_proba = True)
+        val_accuracy = accuracy_score(y_val,y_val_pred)
+        acc_history.loc[ctr,'test_epoch_{}'.format(i+1)] = val_accuracy
+        print('Test Accuracy is: '+str(val_accuracy))
+        test_history.append(val_accuracy)
+        
+        classes = predictor.preproc.get_classes()
+        
+        
+        results = pd.DataFrame({'eventId':id_val,'pre silence':x_val,'label True':y_val,'label_pred':y_val_pred})
+        
+        for i in range(len(classes)):
+            results['prob_class_{}'.format(classes[i])] = y_val_probs[:,i]
+        
+        results.to_csv(os.path.join(cur_output_dir,'results_epoch_{}.csv'.format(i)))
+        
+        
+        if split_out_test_set_patients:
+            y_test_pred = predictor.predict(x_test)
+            
+            test_results = pd.DataFrame({
+                'Patient':patient,
+                'Conversation':conversation,
+                'silence_num':silence_num,
+                'pre_silence':x_test,
+                'Coder_1':coder1,
+                'Coder_2':coder2,
+                'Final_Code':y_test,
+                'prediction':y_test_pred})
+            
+            test_results.to_csv(os.path.join(cur_output_dir,'test_results_epoch_{}.csv'.format(i)))
+        
+    history = pd.DataFrame({'train':train_history,'test':test_history})
+    history.to_csv(os.path.join(cur_output_dir,'history_epoch_{}.csv'.format(i)))
+
+
+acc_history.to_csv(os.path.join(output_dir,'accuracy_history.csv'))
+
+end_time = time.time()
+
+delta_t = end_time-start_time
+
+time_string = "Time to train {} epochs: {}min ({}min/epoch".format(ctr*epochs,delta_t/60,(delta_t/60)/(ctr*epochs))
+print(time_string)
+
+with open('time_to_run.txt','w') as f:
+    f.write(time_string)

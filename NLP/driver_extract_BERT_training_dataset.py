@@ -1,0 +1,137 @@
+
+import os
+import sys
+cd  = os.getcwd()
+shared_functions = os.path.join(os.path.split(cd)[0],'shared_functions')
+sys.path.insert(0,shared_functions)
+
+import Global_Settings as settings
+import setupPCCRIconversations as stup
+import nlpFunctions as nlpf
+import parse_silences_v2 as PS 
+import numpy as np
+import csv
+import pandas as pd
+import pickle
+from sklearn.model_selection import StratifiedShuffleSplit
+import random
+import re
+import os
+
+sys.path.remove(shared_functions)
+
+random.seed(40)
+
+
+#Name of the dataset to process
+dataset = settings.dataset_name
+
+from sklearn.metrics import classification_report
+from sklearn.metrics import accuracy_score
+
+
+transcripts_path = settings.transcripts_path
+
+conversations = stup.PCCRI_setup({},transcripts_path = transcripts_path)
+print('Loaded conversations, getting silences')
+silence_list,conv_stats,total_turns = PS.get_silences(conversations, num_sentences = 2)
+
+
+            
+silence_type_dict = {
+    's0':0,  #non-connectional
+    's1':1,  #Invitational
+    's2':2,  #Emotional
+    's3':2,  #Compassionate
+    's7':'unk'}
+
+
+
+silence_type_dict = {}
+silence_type_dict['s0'] = 0   #'False Pause'
+silence_type_dict['s1'] = 1   #'Confirmed non-connectional pause (initial coders agreed)'
+silence_type_dict['s2'] = 2   #'possible emotional CS (adjudicated non-connectional)'
+silence_type_dict['s3'] = 3   #'possible invitational CS (adjudicated  non-connectional)'
+silence_type_dict['s4'] = 4   #'Needs adjudication or group listen'
+silence_type_dict['s5'] = 5   #'Confirmed emotional CS (both coders agreed)'
+silence_type_dict['s6'] = 6   #'Confirmed invitational CS (both coders agreed)'
+silence_type_dict['s7'] = 7   #'Adjudicated to be emotional CS'
+silence_type_dict['s8'] = 8   #'Adjudicated to be invitational CS'
+
+type_aggregation_dict = {}
+type_aggregation_dict[0] = 0
+type_aggregation_dict[1] = 0
+type_aggregation_dict[2] = 0
+type_aggregation_dict[3] = 0
+type_aggregation_dict[4] = 4
+type_aggregation_dict[5] = 5
+type_aggregation_dict[6] = 6
+type_aggregation_dict[7] = 5
+type_aggregation_dict[8] = 6
+
+
+
+data = pd.DataFrame()
+for ctr,silence in enumerate(silence_list):
+    # print(ctr)
+    data.loc[ctr,'Patient'] = int(silence['Patient'])
+    data.loc[ctr,'Conversation'] = int(silence['Conversation'])
+    data.loc[ctr,'silence_num'] = int(silence['silence_num'])
+    data.loc[ctr,'label True'] = silence_type_dict[silence['silence type']]
+    data.loc[ctr,'pre silence'] = ' '.join(silence['pre silence'])
+    
+    
+expected = pd.read_csv(os.path.join(os.path.split(transcripts_path)[0],'transcript mark summary.csv'))
+expected = expected.loc[expected.Marked_in_transcript == 'JEM',:]
+actual = data
+actual['Patient'] = actual['Patient'].astype(int)
+
+nlpf.compare_actual_expected_samples(expected,actual,transcripts_path)
+
+max_len = 0
+
+ctr = 0
+for ind in data.index:
+    temp = data.loc[ind,'pre silence'].split(' ')
+    temp = [word for word in temp if word != '']
+    temp = ' '.join(temp)
+    temp = re.sub('\<.*?\>',"",temp)
+    temp = temp.split()
+    if len(temp)>500:
+        temp = temp[0:500]
+    temp = ' '.join(temp)
+    
+    data.loc[ind,'pre silence'] = temp
+    
+    if len(temp) == 0:
+        print('{}. zero-length pre-context: {}({})-type:{}'.format(str(ctr).zfill(2),data.loc[ind,'Patient'],data.loc[ind,'Conversation'],data.loc[ind,'label True']))
+        print('    dropping from the dataset')
+        data.loc[ind,'zero_len_sample'] = 'Y'
+        ctr += 1
+        
+print('dropped {} zero-lenth samples'.format(ctr))
+
+print('test')
+    
+mask = data.zero_len_sample == 'Y'
+data = pd.DataFrame(data.loc[~mask,:])
+
+types = set(data['label True'])
+
+print('\nType count summary before simplification:')
+for typ in sorted(list(types)):
+    print('  Type {}: {}'.format(typ,str(sum(data['label True']==typ)).zfill(3)))
+
+#%%
+ind = list(data.index)[5]
+for ind in data.index:
+    data.loc[ind,'label True'] = type_aggregation_dict[data.loc[ind,'label True']]
+    
+    
+types = set(data['label True'])
+
+print('\nType count summary after simplification:')
+for typ in sorted(list(types)):
+    print('  Type {}: {}'.format(typ,str(sum(data['label True']==typ)).zfill(3)))
+    
+data.to_csv(settings.BERT_labels_fn)
