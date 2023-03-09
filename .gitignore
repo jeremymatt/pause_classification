@@ -6,6 +6,8 @@ __pycache__/
 # source data files
 *.csv
 *.wav
+*.xls
+*.xlsx
 
 # excluded directories
 /spectrogram_data*
